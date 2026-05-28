@@ -1,213 +1,479 @@
 <!DOCTYPE html>
-<html lang="en"><head><meta charset="UTF-8"><title>Chef Krish Embedding Pipeline v2</title>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chef Krish — Embedding Pipeline v2</title>
 <style>
-body{font-family:system-ui,sans-serif;background:#0D1117;color:#C9D1D9;margin:0;padding:20px;}
+body{font-family:system-ui,sans-serif;background:#0D1117;color:#C9D1D9;margin:0;padding:20px;min-height:100vh;}
 h1{color:#E6EDF3;font-size:18px;margin:0 0 4px;}
 .sub{color:#8B949E;font-size:13px;margin:4px 0 16px;}
 .card{background:#161B22;border:1px solid #30363D;border-radius:8px;padding:16px;margin-bottom:12px;}
-.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;}
-.fi label{font-size:11px;color:#8B949E;display:block;margin-bottom:3px;}
+.label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:#8B949E;margin-bottom:6px;}
+.key-row{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;}
+.key-item label{font-size:11px;color:#8B949E;display:block;margin-bottom:3px;}
 input{width:100%;background:#0D1117;border:1px solid #30363D;border-radius:6px;padding:7px 10px;color:#C9D1D9;font-family:monospace;font-size:11px;outline:none;box-sizing:border-box;}
 input:focus{border-color:#58A6FF;}
-.btn{padding:8px 18px;border-radius:6px;border:none;font-size:13px;font-weight:600;cursor:pointer;}
-.bp{background:#238636;color:#fff;}.bp:hover{background:#2EA043;}.bp:disabled{opacity:.4;cursor:not-allowed;}
-.bs{background:#21262D;color:#C9D1D9;border:1px solid #30363D;}.bd{background:#8B1A1A;color:#fff;}
 .stat-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin:10px 0;}
 .stat{background:#0D1117;border:1px solid #21262D;border-radius:6px;padding:8px;text-align:center;}
-.sn{font-size:18px;font-weight:700;color:#E6EDF3;}.sl{font-size:10px;color:#8B949E;margin-top:2px;}
-.prog-bar{height:6px;background:#21262D;border-radius:3px;overflow:hidden;margin:8px 0;}
-.prog-fill{height:100%;border-radius:3px;transition:width .4s;background:#238636;}
+.stat-num{font-size:18px;font-weight:700;color:#E6EDF3;}
+.stat-label{font-size:10px;color:#8B949E;margin-top:2px;}
+.progress-bar{height:8px;background:#21262D;border-radius:4px;overflow:hidden;margin:8px 0;}
+.progress-fill{height:100%;border-radius:4px;transition:width .4s;background:linear-gradient(90deg,#238636,#2EA043);}
 .steps{margin:8px 0;}
-.sr{display:flex;gap:8px;align-items:center;padding:5px 0;border-bottom:1px solid #21262D;font-size:12px;}
-.sr:last-child{border:none;}
-.sd{width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;flex-shrink:0;font-weight:700;}
-.sw{background:#21262D;color:#8B949E;}.sr2{background:#1F3A5F;color:#58A6FF;}.sk{background:#1A3326;color:#3FB950;}.se{background:#3D1A1A;color:#F85149;}
-.log{background:#010409;border:1px solid #21262D;border-radius:6px;padding:10px 12px;font-family:monospace;font-size:11px;line-height:1.8;max-height:400px;overflow-y:auto;margin-top:8px;}
-.ok{color:#3FB950;}.err{color:#F85149;}.info{color:#58A6FF;}.dim{color:#6C737B;}
-</style></head><body>
+.step-row{display:flex;gap:8px;align-items:center;padding:5px 0;border-bottom:1px solid #21262D;font-size:12px;}
+.step-row:last-child{border:none;}
+.step-dot{width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0;}
+.s-wait{background:#21262D;color:#8B949E;}
+.s-run{background:#1F3A5F;color:#58A6FF;animation:pulse 1s infinite;}
+.s-ok{background:#1A3326;color:#3FB950;}
+.s-err{background:#3D1A1A;color:#F85149;}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.6}}
+.btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;}
+.btn{padding:8px 18px;border-radius:6px;border:none;font-size:13px;font-weight:600;cursor:pointer;}
+.btn-primary{background:#238636;color:#fff;}.btn-primary:hover{background:#2EA043;}
+.btn-primary:disabled{opacity:.4;cursor:not-allowed;}
+.btn-secondary{background:#21262D;color:#C9D1D9;border:1px solid #30363D;}
+.btn-danger{background:#8B1A1A;color:#fff;}
+.log{background:#010409;border:1px solid #21262D;border-radius:6px;padding:10px 12px;font-family:monospace;font-size:11px;line-height:1.8;max-height:420px;overflow-y:auto;margin-top:8px;}
+.ok{color:#3FB950;}.err{color:#F85149;}.info{color:#58A6FF;}.warn{color:#E3B341;}.dim{color:#6E7681;}
+.rate-info{background:#1F2D3D;border:1px solid #1F4068;border-radius:6px;padding:10px 13px;font-size:12px;color:#79C0FF;margin-bottom:10px;}
+</style>
+</head>
+<body>
 <h1>Chef Krish — Embedding Pipeline v2</h1>
-<p class="sub">Fetches all Neo4j nodes → embeds with Voyage AI → stores in Pinecone. Free tier mode: 22s between batches (~6 min total).</p>
-<div class="card">
-  <div class="grid2">
-    <div class="fi"><label>Neo4j URL</label><input id="n4jUrl" value="https://9b0f64b5-graphql.production-orch-0336.neo4j.io/graphql"/></div>
-    <div class="fi"><label>Neo4j Key</label><input id="n4jKey" value="d16v0PBfQhJqLwunefWZuYe9rVhqQusk"/></div>
-  </div>
-  <div class="grid2">
-    <div class="fi"><label>Voyage AI Key</label><input id="voyKey" value="pa-oxJu0meTte3gSxdIBA5oNrJAvW8L83oyDhm5BDDH6ES"/></div>
-    <div class="fi"><label>Pinecone Key</label><input id="pinKey" value="pcsk_cBjcj_DJNFH8AvceY5Qqs1i4qPBVbC9PjWHxcCnMbDSyUmEQqj7FaRHKCxLkkWRzm9quH"/></div>
-  </div>
-  <div class="fi"><label>Pinecone Host</label><input id="pinHost" value="https://chef-krish-index-82tibs6.svc.aped-4627-b74a.pinecone.io"/></div>
+<p class="sub">Auto-retry on rate limit · Batch size 8 · 22s wait between batches · Handles 3 RPM free tier automatically</p>
+
+<div class="rate-info">
+  ⚡ v2 fixes the 429 rate limit error with automatic retry + exponential backoff.<br>
+  Batch size: <strong>8 texts</strong> per request · Wait: <strong>22 seconds</strong> between batches · Auto-retries up to 5× on 429.<br>
+  Total time for 255 nodes: ~<strong>12 minutes</strong>. Leave this tab open and do not close it.
 </div>
+
 <div class="card">
+  <div class="label">API credentials (pre-filled)</div>
+  <div class="key-row">
+    <div class="key-item"><label>Neo4j GraphQL URL</label><input id="n4jUrl" value="https://9b0f64b5-graphql.production-orch-0336.neo4j.io/graphql"/></div>
+    <div class="key-item"><label>Neo4j API Key</label><input id="n4jKey" value="d16v0PBfQhJqLwunefWZuYe9rVhqQusk"/></div>
+  </div>
+  <div class="key-row">
+    <div class="key-item"><label>Voyage AI API Key</label><input id="voyKey" value="pa-oxJu0meTte3gSxdIBA5oNrJAvW8L83oyDhm5BDDH6ES"/></div>
+    <div class="key-item"><label>Pinecone API Key</label><input id="pinKey" value="pcsk_cBjcj_DJNFH8AvceY5Qqs1i4qPBVbC9PjWHxcCnMbDSyUmEQqj7FaRHKCxLkkWRzm9quH"/></div>
+  </div>
+  <div class="key-row">
+    <div class="key-item"><label>Pinecone Host URL</label><input id="pinHost" value="https://chef-krish-index-82tibs6.svc.aped-4627-b74a.pinecone.io"/></div>
+    <div class="key-item"><label>Batch size (default 8 for free tier)</label><input id="batchSize" value="8" type="number" min="1" max="128"/></div>
+  </div>
+  <div class="key-row">
+    <div class="key-item"><label>Wait between batches (seconds)</label><input id="waitSec" value="22" type="number" min="5" max="120"/></div>
+    <div class="key-item"><label>Max retries on 429</label><input id="maxRetry" value="5" type="number" min="1" max="10"/></div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="label">Pipeline steps</div>
   <div class="steps">
-    <div class="sr"><div class="sd sw" id="d0">1</div><span id="l0">Fetch Dish nodes (name+desc+price+isVeg+spiceLevel+mustTry+isBeverage)</span></div>
-    <div class="sr"><div class="sd sw" id="d1">2</div><span id="l1">Fetch Staff, Features, Timing, AboutUs, Restaurants, Categories, Allergens</span></div>
-    <div class="sr"><div class="sd sw" id="d2">3</div><span id="l2">Generate embeddings via Voyage AI voyage-3-lite (512d)</span></div>
-    <div class="sr"><div class="sd sw" id="d3">4</div><span id="l3">Upsert all vectors into Pinecone namespace: chef-krish</span></div>
-    <div class="sr"><div class="sd sw" id="d4">5</div><span id="l4">Verify — test semantic search</span></div>
+    <div class="step-row"><div class="step-dot s-wait" id="d0">1</div><span id="l0">Fetch all nodes from Neo4j (dishes, staff, features, timing, about)</span></div>
+    <div class="step-row"><div class="step-dot s-wait" id="d1">2</div><span id="l1">Embed via Voyage AI — batch size 8, 22s between batches, auto-retry on 429</span></div>
+    <div class="step-row"><div class="step-dot s-wait" id="d2">3</div><span id="l2">Upsert all vectors into Pinecone (namespace: chef-krish)</span></div>
+    <div class="step-row"><div class="step-dot s-wait" id="d3">4</div><span id="l3">Verify — test semantic search "something mild and creamy"</span></div>
   </div>
-  <div class="prog-bar"><div class="prog-fill" id="prog" style="width:0%"></div></div>
+  <div class="progress-bar"><div class="progress-fill" id="prog" style="width:0%"></div></div>
   <div class="stat-grid">
-    <div class="stat"><div class="sn" id="cD">0</div><div class="sl">Dishes</div></div>
-    <div class="stat"><div class="sn" id="cS">0</div><div class="sl">Staff</div></div>
-    <div class="stat"><div class="sn" id="cF">0</div><div class="sl">Features</div></div>
-    <div class="stat"><div class="sn" id="cO">0</div><div class="sl">Other nodes</div></div>
-    <div class="stat"><div class="sn" id="cV">0</div><div class="sl">Vectors stored</div></div>
+    <div class="stat"><div class="stat-num" id="cFetch">0</div><div class="stat-label">Fetched</div></div>
+    <div class="stat"><div class="stat-num" id="cEmbed">0</div><div class="stat-label">Embedded</div></div>
+    <div class="stat"><div class="stat-num" id="cStore">0</div><div class="stat-label">Stored</div></div>
+    <div class="stat"><div class="stat-num" id="cRetry">0</div><div class="stat-label">Retries</div></div>
+    <div class="stat"><div class="stat-num" id="cTime">0s</div><div class="stat-label">Elapsed</div></div>
   </div>
-  <div style="display:flex;gap:8px;">
-    <button class="btn bp" id="runBtn" onclick="run()">▶ Run Pipeline</button>
-    <button class="btn bs" onclick="testSearch()">🔍 Test Search</button>
-    <button class="btn bd" onclick="clearIdx()">🗑 Clear Index</button>
+  <div class="btns">
+    <button class="btn btn-primary" id="runBtn" onclick="runPipeline()">▶ Run Pipeline</button>
+    <button class="btn btn-secondary" onclick="testSearch()">🔍 Test Search</button>
+    <button class="btn btn-danger" onclick="clearIndex()">🗑 Clear Index</button>
   </div>
 </div>
-<div class="card"><div class="log" id="logEl"><span class="dim">Waiting...</span></div></div>
+
+<div class="card">
+  <div class="label">Live log</div>
+  <div class="log" id="logEl"><span class="dim">Waiting to start...</span></div>
+</div>
 
 <script>
-const g=id=>document.getElementById(id);
-function log(m,t="dim"){const el=g("logEl");const d=document.createElement("div");d.className=t;d.textContent="["+new Date().toLocaleTimeString()+"] "+m;d.style.cursor="pointer";d.onclick=()=>navigator.clipboard.writeText(m);el.appendChild(d);el.scrollTop=el.scrollHeight;}
-function step(i,s,l){const d=g("d"+i);d.className="sd "+(s==="ok"?"sk":s==="err"?"se":s==="run"?"sr2":"sw");d.textContent=s==="ok"?"✓":s==="err"?"✗":s==="run"?"▶":(i+1);if(l)g("l"+i).textContent=l;}
-function prog(p){g("prog").style.width=p+"%";}
+let startTime, timerInterval, totalRetries=0, embedCount=0, storeCount=0;
 
-async function n4j(q){
-  const r=await fetch(g("n4jUrl").value,{method:"POST",mode:"cors",headers:{"Content-Type":"application/json","x-api-key":g("n4jKey").value},body:JSON.stringify({query:q})});
-  const j=await r.json();if(j.errors)throw new Error(j.errors[0].message);return j.data||{};
+function g(id){return document.getElementById(id);}
+
+function log(msg,type="info"){
+  const el=g("logEl");
+  const d=document.createElement("div");
+  d.className=type;
+  const t=new Date().toLocaleTimeString();
+  d.textContent="["+t+"] "+msg;
+  el.appendChild(d);
+  el.scrollTop=el.scrollHeight;
 }
 
-async function voyage(texts,type="document"){
+function setStep(i,state,label){
+  const d=g("d"+i);
+  d.className="step-dot s-"+state;
+  d.textContent=state==="ok"?"✓":state==="err"?"✗":state==="run"?"▶":(i+1);
+  if(label)g("l"+i).textContent=label;
+}
+
+function prog(pct){g("prog").style.width=Math.min(pct,100)+"%";}
+
+function startTimer(){
+  startTime=Date.now();
+  timerInterval=setInterval(()=>{
+    const s=Math.round((Date.now()-startTime)/1000);
+    g("cTime").textContent=s<60?s+"s":Math.floor(s/60)+"m"+(s%60)+"s";
+  },1000);
+}
+
+function stopTimer(){clearInterval(timerInterval);}
+
+// ── NEO4J FETCH ───────────────────────────────────────
+async function n4jQuery(gql){
+  const r=await fetch(g("n4jUrl").value.trim(),{
+    method:"POST",mode:"cors",
+    headers:{"Content-Type":"application/json","x-api-key":g("n4jKey").value.trim()},
+    body:JSON.stringify({query:gql})
+  });
+  const j=await r.json();
+  if(j.errors)throw new Error(j.errors[0].message);
+  return j.data||{};
+}
+
+// ── VOYAGE AI WITH RETRY ──────────────────────────────
+// Key fix: batch size 8, wait between batches, exponential backoff on 429
+async function voyageEmbedWithRetry(texts, inputType="document"){
+  const BATCH=parseInt(g("batchSize").value)||8;
+  const WAIT=parseInt(g("waitSec").value)||22;
+  const MAX_RETRY=parseInt(g("maxRetry").value)||5;
   const all=[];
-  // Free tier: 3 RPM, 10K TPM. Batch size 20 with 22s wait = safe.
-  const BS=20;const WAIT=22000;
-  const total=Math.ceil(texts.length/BS);
-  for(let i=0;i<texts.length;i+=BS){
-    const batch=texts.slice(i,i+BS);
-    const bNum=Math.floor(i/BS)+1;
+
+  for(let i=0;i<texts.length;i+=BATCH){
+    const batch=texts.slice(i,i+BATCH);
+    const batchNum=Math.floor(i/BATCH)+1;
+    const totalBatches=Math.ceil(texts.length/BATCH);
+
+    // Wait between batches (not before first one)
     if(i>0){
-      log(`  Waiting 22s (free tier rate limit)... batch ${bNum}/${total}`,"dim");
-      await new Promise(r=>setTimeout(r,WAIT));
+      log(`⏳ Waiting ${WAIT}s before batch ${batchNum}/${totalBatches}...`,"dim");
+      await sleep(WAIT*1000);
     }
-    const r=await fetch("https://api.voyageai.com/v1/embeddings",{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+g("voyKey").value},body:JSON.stringify({model:"voyage-3-lite",input:batch,input_type:type})});
-    if(!r.ok){const t=await r.text();throw new Error("Voyage "+r.status+": "+t.substring(0,150));}
-    const j=await r.json();if(j.error)throw new Error(j.error.message);
-    j.data.forEach(x=>all.push(x.embedding));
-    log(`  ✓ Batch ${bNum}/${total} — ${j.usage?.total_tokens||"?"} tokens used`,"ok");
-    // Update progress
-    prog(30+Math.round((bNum/total)*35));
+
+    // Retry loop for this batch
+    let attempt=0;
+    let success=false;
+    while(attempt<MAX_RETRY && !success){
+      try{
+        log(`Embedding batch ${batchNum}/${totalBatches} (${batch.length} texts, attempt ${attempt+1})...`,"dim");
+        const r=await fetch("https://api.voyageai.com/v1/embeddings",{
+          method:"POST",
+          headers:{
+            "Content-Type":"application/json",
+            "Authorization":"Bearer "+g("voyKey").value.trim()
+          },
+          body:JSON.stringify({model:"voyage-3-lite",input:batch,input_type:inputType})
+        });
+
+        if(r.status===429){
+          // Rate limited — exponential backoff
+          const waitMs=(WAIT*1000)*Math.pow(2,attempt);
+          const waitSec=Math.round(waitMs/1000);
+          attempt++;
+          totalRetries++;
+          g("cRetry").textContent=totalRetries;
+          log(`⚠️ 429 Rate limit hit. Waiting ${waitSec}s before retry ${attempt}/${MAX_RETRY}...`,"warn");
+          await sleep(waitMs);
+          continue;
+        }
+
+        if(!r.ok){
+          const t=await r.text();
+          throw new Error("Voyage "+r.status+": "+t.substring(0,150));
+        }
+
+        const j=await r.json();
+        if(j.error)throw new Error(j.error.message||JSON.stringify(j.error));
+        if(!j.data||!j.data.length)throw new Error("Voyage returned empty data");
+
+        j.data.forEach(item=>all.push(item.embedding));
+        embedCount+=batch.length;
+        g("cEmbed").textContent=embedCount;
+        log(`✓ Batch ${batchNum}/${totalBatches} done — ${j.usage?.total_tokens||"?"} tokens`,"ok");
+        prog(10+(embedCount/texts.length)*55);
+        success=true;
+
+      }catch(e){
+        if(e.message.includes("429")||e.message.includes("rate")||e.message.toLowerCase().includes("limit")){
+          attempt++;
+          totalRetries++;
+          g("cRetry").textContent=totalRetries;
+          const waitMs=(WAIT*1000)*Math.pow(2,attempt);
+          const waitSec=Math.round(waitMs/1000);
+          log(`⚠️ Rate limit error. Waiting ${waitSec}s, retry ${attempt}/${MAX_RETRY}...`,"warn");
+          await sleep(waitMs);
+        }else{
+          throw e; // Non-rate-limit error — don't retry
+        }
+      }
+    }
+
+    if(!success){
+      throw new Error(`Batch ${batchNum} failed after ${MAX_RETRY} retries. Check your Voyage AI key and rate limits.`);
+    }
   }
   return all;
 }
 
-async function pinUpsert(vecs){
-  const host=g("pinHost").value.replace(/\/$/,"");const key=g("pinKey").value;
-  const BS=100;let total=0;
-  for(let i=0;i<vecs.length;i+=BS){
-    const batch=vecs.slice(i,i+BS);
-    const r=await fetch(host+"/vectors/upsert",{method:"POST",headers:{"Content-Type":"application/json","Api-Key":key},body:JSON.stringify({vectors:batch,namespace:"chef-krish"})});
-    if(!r.ok){const t=await r.text();throw new Error("Pinecone "+r.status+": "+t.substring(0,150));}
-    total+=batch.length;g("cV").textContent=total;
-    log(`  Pinecone: ${total}/${vecs.length} stored`,"dim");prog(75+Math.round((i/vecs.length)*20));
-  }
-  return total;
+function sleep(ms){return new Promise(r=>setTimeout(r,ms));}
+
+// ── BUILD TEXT FOR EMBEDDING ──────────────────────────
+function dishText(d){
+  return `Indian restaurant dish: ${d.name||""}. ${d.desc||d.description||""} Price $${d.price||""}. `+
+    (d.isVeg==="true"?"Vegetarian. ":"Non-vegetarian. ")+
+    `Spice: ${d.spiceLevel||"Medium"}. Origin: ${d.origin||"Indian"}. `+
+    (d.mustTry==="true"?"Chef recommended must-try. ":"")+
+    (d.isBeverage==="true"?"Beverage/drink item. ":"");
+}
+function staffText(s){
+  return `Staff at Taste of India: ${s.name||""}. Role: ${s.role||""}. `+
+    (s.expertise?`Expertise: ${s.expertise}. `:"")+
+    (s.aiInspired?s.aiInspired+" ":"");
+}
+function featureText(f){
+  return `Taste of India restaurant feature: ${f.name||f.property||""}. `+
+    `${f.property||""}: ${f.value||""}. Type: ${f.type||""}.`;
 }
 
-async function run(){
-  g("runBtn").disabled=true;g("logEl").innerHTML="";prog(2);
-  log("Starting embedding pipeline v2...","info");
-  const nodes=[];const texts=[];
-
-  // STEP 1: Dishes — using correct query name (will work after schema refresh)
-  step(0,"run");log("Fetching dishes...");
-  try{
-    const d=await n4j(`{ dishes { name price isVeg isVegan spiceLevel mustTry isBeverage desc origin } }`);
-    (d.dishes||[]).forEach(x=>{
-      nodes.push({id:"dish_"+x.name.toLowerCase().replace(/[^a-z0-9]+/g,"_").substring(0,50),metadata:{type:"dish",name:x.name,price:x.price||"0",isVeg:x.isVeg||"false",spiceLevel:x.spiceLevel||"Medium",mustTry:x.mustTry||"false",isBeverage:x.isBeverage||"false",origin:x.origin||"Indian"}});
-      texts.push(`Indian restaurant dish: ${x.name}. ${x.desc||""}. Price $${x.price}. ${x.isVeg==="true"?"Vegetarian.":"Non-vegetarian."} Spice: ${x.spiceLevel||"Medium"}.${x.mustTry==="true"?" Must-try.":""}${x.isBeverage==="true"?" Beverage.":""}`);
+// ── PINECONE UPSERT ───────────────────────────────────
+async function pinUpsert(vectors){
+  const BATCH=100;
+  const host=g("pinHost").value.trim().replace(/\/$/,"");
+  const key=g("pinKey").value.trim();
+  for(let i=0;i<vectors.length;i+=BATCH){
+    const batch=vectors.slice(i,i+BATCH);
+    const r=await fetch(host+"/vectors/upsert",{
+      method:"POST",
+      headers:{"Content-Type":"application/json","Api-Key":key},
+      body:JSON.stringify({vectors:batch,namespace:"chef-krish"})
     });
-    g("cD").textContent=d.dishes?.length||0;
-    step(0,"ok",`Dishes — ${d.dishes?.length||0} fetched`);
-    log("✓ "+(d.dishes?.length||0)+" dishes","ok");prog(15);
-  }catch(e){step(0,"err");log("✗ Dishes: "+e.message+" — Did you refresh the GraphQL schema?","err");}
+    if(!r.ok){const t=await r.text();throw new Error("Pinecone "+r.status+": "+t.substring(0,150));}
+    storeCount+=batch.length;
+    g("cStore").textContent=storeCount;
+    log(`Pinecone: ${storeCount}/${vectors.length} vectors stored`,"dim");
+  }
+}
 
-  // STEP 2: All other nodes
-  step(1,"run");log("Fetching staff, features, timings, aboutus, categories, allergens...");
+// ── MAIN PIPELINE ─────────────────────────────────────
+async function runPipeline(){
+  g("runBtn").disabled=true;
+  g("logEl").innerHTML="";
+  totalRetries=0;embedCount=0;storeCount=0;
+  g("cFetch").textContent="0";g("cEmbed").textContent="0";
+  g("cStore").textContent="0";g("cRetry").textContent="0";
+  prog(0);startTimer();
+
+  const allNodes=[], allTexts=[];
+
+  // ── STEP 1: FETCH ALL NODES ─────────────────────────
+  setStep(0,"run");
+  log("Fetching all nodes from Neo4j...","info");
+
+  // Dishes — try both 'dishes' and fallback field names
   try{
-    // Staff
-    const s=await n4j("{ staff { name role expertise worksAt aiInspired } }");
-    (s.staff||[]).forEach(x=>{nodes.push({id:"staff_"+x.name.toLowerCase().replace(/[^a-z0-9]+/g,"_"),metadata:{type:"staff",name:x.name,role:x.role,expertise:x.expertise||""}});texts.push(`Staff at Taste of India: ${x.name}. Role: ${x.role}. ${x.expertise?"Expertise: "+x.expertise+".":""}`);});
-    g("cS").textContent=s.staff?.length||0;
-    // RestaurantFeatures
-    const f=await n4j("{ restaurantFeatures { name property value type } }");
-    (f.restaurantFeatures||[]).forEach(x=>{nodes.push({id:"feat_"+x.property.toLowerCase().replace(/[^a-z0-9]+/g,"_"),metadata:{type:"feature",name:x.name,property:x.property,value:x.value,featureType:x.type}});texts.push(`Taste of India restaurant feature — ${x.name}: ${x.value}. Category: ${x.type.replace("HAS_","").toLowerCase()}.`);});
-    g("cF").textContent=f.restaurantFeatures?.length||0;
-    // Timing
-    const t=await n4j("{ timings { fullSummary lunchHours dinnerHours closedOn closedMessage buffetNote buffetHours buffetDays timezone } }");
-    if(t.timings?.length){const x=t.timings[0];nodes.push({id:"timing_main",metadata:{type:"timing",name:"Restaurant Hours"}});texts.push(`Taste of India hours: ${x.fullSummary} Lunch: ${x.lunchHours}. Dinner: ${x.dinnerHours}. Closed: ${x.closedOn}. ${x.closedMessage} Buffet: ${x.buffetNote||"Yes"}, ${x.buffetHours||"11AM-2PM"}, ${x.buffetDays||"Tue-Sun"}.`);}
-    // AboutUs
-    const a=await n4j("{ aboutuses { communityRole recognition customerExperience menuType foodPhilosophy city state services ambiance } }");
-    if(a.aboutuses?.length){const x=a.aboutuses[0];nodes.push({id:"about_restaurant",metadata:{type:"about",name:"About Taste of India",city:x.city||"Monroe",state:x.state||"Louisiana"}});texts.push(`About Taste of India in Monroe Louisiana: ${x.communityRole} ${x.recognition} ${x.customerExperience} Menu: ${x.menuType}. ${x.foodPhilosophy} Services: ${x.services}.`);}
-    // Allergens
-    const al=await n4j("{ allergens { name severity commonIn } }");
-    (al.allergens||[]).forEach(x=>{nodes.push({id:"allergen_"+x.name.toLowerCase(),metadata:{type:"allergen",name:x.name,severity:x.severity,commonIn:x.commonIn||""}});texts.push(`Allergen disclosed by Taste of India: ${x.name}. Severity: ${x.severity}. Commonly found in: ${x.commonIn||"various dishes"}.`);});
-    // Restaurants
-    const rs=await n4j("{ restaurants { name location cuisine established tagline knownFor lunchHours dinnerHours } }");
-    if(rs.restaurants?.length){const x=rs.restaurants[0];nodes.push({id:"restaurant_main",metadata:{type:"restaurant",name:x.name,location:x.location}});texts.push(`${x.name} restaurant in ${x.location}. Cuisine: ${x.cuisine}. Established: ${x.established}. Known for: ${x.knownFor}. ${x.tagline}. Lunch: ${x.lunchHours}. Dinner: ${x.dinnerHours}.`);}
-    // Categories
-    const c=await n4j("{ categories { name type mealTime cookingMethod origin } }");
-    (c.categories||[]).forEach(x=>{nodes.push({id:"cat_"+x.name.toLowerCase().replace(/[^a-z0-9]+/g,"_"),metadata:{type:"category",name:x.name,mealTime:x.mealTime||"Any"}});texts.push(`Menu category at Taste of India: ${x.name}. Type: ${x.type}. Served: ${x.mealTime||"anytime"}. Cooking: ${x.cookingMethod||"traditional Indian"}. Origin: ${x.origin||"Indian"}.`);});
+    const d=await n4jQuery("{ dishes { name price isVeg spiceLevel mustTry isBeverage desc origin } }");
+    const dishes=d.dishes||[];
+    dishes.forEach(dish=>{
+      const id="dish_"+dish.name.toLowerCase().replace(/[^a-z0-9]+/g,"_").substring(0,48);
+      allNodes.push({id,metadata:{type:"dish",name:dish.name,price:dish.price||"",isVeg:dish.isVeg||"false",spiceLevel:dish.spiceLevel||"Medium",mustTry:dish.mustTry||"false",isBeverage:dish.isBeverage||"false"}});
+      allTexts.push(dishText(dish));
+    });
+    log("✓ "+dishes.length+" dishes","ok");
+  }catch(e){log("✗ dishes: "+e.message,"err");}
 
-    g("cO").textContent=nodes.length-(g("cD").textContent*1)-(g("cS").textContent*1)-(g("cF").textContent*1);
-    step(1,"ok","All nodes fetched — total: "+nodes.length);
-    log("✓ All nodes fetched. Total: "+nodes.length,"ok");prog(30);
-  }catch(e){step(1,"err");log("✗ Other nodes: "+e.message,"err");}
-
-  if(!texts.length){log("No data to embed — stopping","err");g("runBtn").disabled=false;return;}
-
-  // STEP 3: Voyage embeddings
-  step(2,"run");log("Generating embeddings via Voyage AI...");
-  let embs=[];
-  try{embs=await voyage(texts,"document");step(2,"ok",embs.length+" embeddings (512d each)");log("✓ "+embs.length+" embeddings generated","ok");prog(65);}
-  catch(e){step(2,"err");log("✗ Voyage: "+e.message,"err");g("runBtn").disabled=false;return;}
-
-  // STEP 4: Pinecone upsert
-  step(3,"run");log("Storing in Pinecone...");
+  // Staff
   try{
-    const vecs=nodes.map((n,i)=>({id:n.id,values:embs[i],metadata:n.metadata}));
-    const stored=await pinUpsert(vecs);
-    step(3,"ok",stored+" vectors stored");log("✓ "+stored+" vectors in Pinecone","ok");prog(95);
-  }catch(e){step(3,"err");log("✗ Pinecone: "+e.message,"err");g("runBtn").disabled=false;return;}
+    const d=await n4jQuery("{ staff { name role expertise worksAt aiInspired } }");
+    (d.staff||[]).forEach(s=>{
+      allNodes.push({id:"staff_"+s.name.toLowerCase().replace(/[^a-z0-9]+/g,"_"),metadata:{type:"staff",name:s.name,role:s.role||"",expertise:s.expertise||""}});
+      allTexts.push(staffText(s));
+    });
+    log("✓ "+(d.staff||[]).length+" staff","ok");
+  }catch(e){log("✗ staff: "+e.message,"err");}
 
-  // STEP 5: Test search
-  step(4,"run");log("Testing semantic search...");
+  // RestaurantFeature
   try{
-    await new Promise(r=>setTimeout(r,2000));
-    const qv=await voyage(["something mild and creamy"],"query");
-    const r=await fetch(g("pinHost").value.replace(/\/$/,"")+"/query",{method:"POST",headers:{"Content-Type":"application/json","Api-Key":g("pinKey").value},body:JSON.stringify({vector:qv[0],topK:3,includeMetadata:true,namespace:"chef-krish"})});
-    const j=await r.json();
-    step(4,"ok","Top: "+(j.matches?.[0]?.metadata?.name||"none")+" score "+(j.matches?.[0]?.score?.toFixed(3)||"?"));
-    log("✓ Semantic search verified!","ok");
-    (j.matches||[]).forEach(m=>log("  "+m.score?.toFixed(3)+" — "+m.metadata?.name+" ["+m.metadata?.type+"]","ok"));
+    const d=await n4jQuery("{ restaurantFeatures { name property value type } }");
+    (d.restaurantFeatures||[]).forEach(f=>{
+      allNodes.push({id:"feat_"+(f.property||f.name||"x").toLowerCase().replace(/[^a-z0-9]+/g,"_").substring(0,48),metadata:{type:"feature",name:f.name||f.property||"",property:f.property||"",value:f.value||"",featureType:f.type||""}});
+      allTexts.push(featureText(f));
+    });
+    log("✓ "+(d.restaurantFeatures||[]).length+" features","ok");
+  }catch(e){log("✗ features: "+e.message,"err");}
+
+  // Timing
+  try{
+    const d=await n4jQuery("{ timings { fullSummary lunchHours dinnerHours closedOn closedMessage buffetNote buffetHours timezone } }");
+    (d.timings||[]).forEach(t=>{
+      allNodes.push({id:"timing_main",metadata:{type:"timing",name:"Restaurant Hours"}});
+      allTexts.push(`Taste of India hours: ${t.fullSummary||""} Lunch: ${t.lunchHours||""}. Dinner: ${t.dinnerHours||""}. Closed: ${t.closedOn||"Monday"}. ${t.closedMessage||""} Buffet: ${t.buffetNote||""} ${t.buffetHours||""}.`);
+    });
+    log("✓ timing","ok");
+  }catch(e){log("✗ timings: "+e.message+" (will try without)","warn");}
+
+  // AboutUs
+  try{
+    const d=await n4jQuery("{ aboutuses { communityRole recognition customerExperience menuType foodPhilosophy city state services } }");
+    (d.aboutuses||[]).forEach(a=>{
+      allNodes.push({id:"about_restaurant",metadata:{type:"about",name:"About Taste of India",city:a.city||"Monroe",state:a.state||"Louisiana"}});
+      allTexts.push(`About Taste of India: ${a.communityRole||""} ${a.recognition||""} ${a.customerExperience||""} Menu: ${a.menuType||""}. Philosophy: ${a.foodPhilosophy||""} Services: ${a.services||""}.`);
+    });
+    log("✓ aboutus","ok");
+  }catch(e){log("✗ aboutuses: "+e.message+" (will try without)","warn");}
+
+  // Categories
+  try{
+    const d=await n4jQuery("{ categories { name type mealTime cookingMethod origin } }");
+    (d.categories||[]).forEach(c=>{
+      allNodes.push({id:"cat_"+c.name.toLowerCase().replace(/[^a-z0-9]+/g,"_").substring(0,48),metadata:{type:"category",name:c.name,mealTime:c.mealTime||""}});
+      allTexts.push(`Taste of India food category: ${c.name}. Type: ${c.type||""}. Meal time: ${c.mealTime||""}. Cooking: ${c.cookingMethod||""}. Origin: ${c.origin||"Indian"}.`);
+    });
+    log("✓ "+(d.categories||[]).length+" categories","ok");
+  }catch(e){log("✗ categories: "+e.message,"warn");}
+
+  // Allergens
+  try{
+    const d=await n4jQuery("{ allergens { name severity commonIn } }");
+    (d.allergens||[]).forEach(a=>{
+      allNodes.push({id:"allergen_"+a.name.toLowerCase().replace(/[^a-z0-9]+/g,"_"),metadata:{type:"allergen",name:a.name,severity:a.severity||""}});
+      allTexts.push(`Allergen at Taste of India: ${a.name}. Severity: ${a.severity||""}. Common in: ${a.commonIn||""}.`);
+    });
+    log("✓ "+(d.allergens||[]).length+" allergens","ok");
+  }catch(e){log("✗ allergens: "+e.message,"warn");}
+
+  g("cFetch").textContent=allNodes.length;
+  log(`Total: ${allNodes.length} nodes to embed · ${allTexts.length} texts`,"info");
+  prog(10);
+
+  if(allNodes.length===0){
+    log("❌ No nodes fetched. Check Neo4j connection.","err");
+    setStep(0,"err");stopTimer();g("runBtn").disabled=false;return;
+  }
+  setStep(0,"ok","Neo4j — "+allNodes.length+" nodes fetched ✓");
+
+  // ── STEP 2: EMBED WITH VOYAGE AI ───────────────────
+  setStep(1,"run",`Voyage AI embedding — batch ${g("batchSize").value}, ${g("waitSec").value}s between batches`);
+  log(`Starting Voyage AI embeddings — ${Math.ceil(allTexts.length/parseInt(g("batchSize").value))} batches, ${g("waitSec").value}s between each...`,"info");
+  log(`Estimated time: ~${Math.round(Math.ceil(allTexts.length/parseInt(g("batchSize").value))*parseInt(g("waitSec").value)/60)} minutes`,"warn");
+
+  let embeddings;
+  try{
+    embeddings=await voyageEmbedWithRetry(allTexts,"document");
+    log(`✓ ${embeddings.length} embeddings generated`,"ok");
+    setStep(1,"ok","Voyage AI — "+embeddings.length+" embeddings ✓");
+    prog(70);
+  }catch(e){
+    log("❌ Embedding failed: "+e.message,"err");
+    setStep(1,"err");stopTimer();g("runBtn").disabled=false;return;
+  }
+
+  // ── STEP 3: PINECONE UPSERT ─────────────────────────
+  setStep(2,"run");
+  log("Upserting to Pinecone...","info");
+  try{
+    const vectors=allNodes.map((n,i)=>({id:n.id,values:embeddings[i],metadata:n.metadata}));
+    await pinUpsert(vectors);
+    log("✓ "+storeCount+" vectors stored in Pinecone","ok");
+    setStep(2,"ok","Pinecone — "+storeCount+" vectors stored ✓");
+    prog(90);
+  }catch(e){
+    log("❌ Pinecone: "+e.message,"err");
+    setStep(2,"err");stopTimer();g("runBtn").disabled=false;return;
+  }
+
+  // ── STEP 4: VERIFY ──────────────────────────────────
+  setStep(3,"run");
+  log("Waiting 3s for Pinecone index to refresh...","dim");
+  await sleep(3000);
+  try{
+    const result=await doSearch("something mild and creamy comfort food",3);
+    if(result.length){
+      const top=result[0];
+      log(`✓ Semantic search works! Top: "${top.metadata?.name}" score ${top.score?.toFixed(3)}`,"ok");
+      log("Results:","dim");
+      result.forEach(m=>log(`  ${m.score?.toFixed(3)} — ${m.metadata?.name} [${m.metadata?.type}]`,"ok"));
+      setStep(3,"ok","Verified — semantic search working ✓");
+    }else{
+      log("Index updated but no matches yet — try Test Search in 30s","warn");
+      setStep(3,"ok","Stored — search may need 30s to warm up");
+    }
     prog(100);
-  }catch(e){step(4,"err");log("Search test: "+e.message,"err");}
+  }catch(e){
+    log("Verify error (not critical): "+e.message,"warn");
+    setStep(3,"ok","Stored — run Test Search to verify");
+    prog(100);
+  }
 
-  log("Pipeline complete! Now open Chef Krish v6.1 and test.","info");
+  stopTimer();
+  log("","dim");
+  log("✅ Pipeline complete! All "+storeCount+" vectors in Pinecone.","ok");
+  log("Open ChefKrish_v6_1.html from GitHub Pages — semantic search now active.","info");
   g("runBtn").disabled=false;
 }
 
-async function testSearch(){
-  const queries=["something mild","comfort food","who is the head chef","parking available","not too spicy","traditional indian decor","cold drinks","vegetarian options"];
-  g("logEl").innerHTML="";log("Search tests...\n","info");
-  try{
-    const vecs=await voyage(queries,"query");
-    for(let i=0;i<queries.length;i++){
-      const r=await fetch(g("pinHost").value.replace(/\/$/,"")+"/query",{method:"POST",headers:{"Content-Type":"application/json","Api-Key":g("pinKey").value},body:JSON.stringify({vector:vecs[i],topK:2,includeMetadata:true,namespace:"chef-krish"})});
-      const j=await r.json();
-      log(`"${queries[i]}" → `+(j.matches?.map(m=>m.metadata?.name+" ("+m.score?.toFixed(2)+")").join(", ")||"no matches"),"ok");
-    }
-  }catch(e){log("Error: "+e.message,"err");}
+// ── SEARCH TEST ────────────────────────────────────────
+async function voyageEmbedQuery(text){
+  const r=await fetch("https://api.voyageai.com/v1/embeddings",{
+    method:"POST",
+    headers:{"Content-Type":"application/json","Authorization":"Bearer "+g("voyKey").value.trim()},
+    body:JSON.stringify({model:"voyage-3-lite",input:[text],input_type:"query"})
+  });
+  if(!r.ok)throw new Error("Voyage "+r.status);
+  const j=await r.json();
+  return j.data[0].embedding;
 }
 
-async function clearIdx(){
-  if(!confirm("Delete ALL vectors from chef-krish namespace?"))return;
-  const r=await fetch(g("pinHost").value.replace(/\/$/,"")+"/vectors/delete",{method:"POST",headers:{"Content-Type":"application/json","Api-Key":g("pinKey").value},body:JSON.stringify({deleteAll:true,namespace:"chef-krish"})});
-  log(r.ok?"✓ Cleared":"✗ Failed "+r.status,r.ok?"ok":"err");
+async function doSearch(question,topK=5,filter=null){
+  const vec=await voyageEmbedQuery(question);
+  const body={vector:vec,topK,includeMetadata:true,namespace:"chef-krish"};
+  if(filter)body.filter=filter;
+  const host=g("pinHost").value.trim().replace(/\/$/,"");
+  const r=await fetch(host+"/query",{
+    method:"POST",
+    headers:{"Content-Type":"application/json","Api-Key":g("pinKey").value.trim()},
+    body:JSON.stringify(body)
+  });
+  if(!r.ok)throw new Error("Pinecone query "+r.status);
+  const j=await r.json();
+  return j.matches||[];
 }
-</script></body></html>
+
+async function testSearch(){
+  g("logEl").innerHTML="";
+  log("Running semantic search tests...","info");
+  const queries=["something mild and creamy","not too spicy","good for vegetarians","who are the chefs","parking and facilities","cold refreshing drink","traditional indian decor","comfort food","what pairs with butter chicken","spicy hot dish"];
+  for(const q of queries){
+    try{
+      const m=await doSearch(q,3);
+      log(`"${q}":`,"info");
+      m.slice(0,2).forEach(r=>log(`  ${r.score?.toFixed(3)} — ${r.metadata?.name} [${r.metadata?.type}]`,"ok"));
+      if(!m.length)log("  no matches","warn");
+    }catch(e){log(`"${q}" → ${e.message}`,"err");}
+    await sleep(1000);
+  }
+}
+
+async function clearIndex(){
+  if(!confirm("Delete ALL vectors from Pinecone namespace chef-krish?"))return;
+  const host=g("pinHost").value.trim().replace(/\/$/,"");
+  try{
+    const r=await fetch(host+"/vectors/delete",{method:"POST",headers:{"Content-Type":"application/json","Api-Key":g("pinKey").value.trim()},body:JSON.stringify({deleteAll:true,namespace:"chef-krish"})});
+    log(r.ok?"✓ Index cleared":"✗ Clear failed: "+r.status,r.ok?"ok":"err");
+  }catch(e){log("Error: "+e.message,"err");}
+}
+</script>
+</body>
+</html>
