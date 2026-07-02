@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Chef Krish — Embedding Pipeline v2</title>
+<title>Chef Krish — Embedding Pipeline v3</title>
 <style>
 body{font-family:system-ui,sans-serif;background:#0D1117;color:#C9D1D9;margin:0;padding:20px;min-height:100vh;}
 h1{color:#E6EDF3;font-size:18px;margin:0 0 4px;}
@@ -41,7 +41,7 @@ input:focus{border-color:#58A6FF;}
 </style>
 </head>
 <body>
-<h1>Chef Krish — Embedding Pipeline v2</h1>
+<h1>Chef Krish — Embedding Pipeline v3</h1>
 <p class="sub">Auto-retry on rate limit · Batch size 8 · 22s wait between batches · Handles 3 RPM free tier automatically</p>
 
 <div class="rate-info">
@@ -67,6 +67,13 @@ input:focus{border-color:#58A6FF;}
   <div class="key-row">
     <div class="key-item"><label>Wait between batches (seconds)</label><input id="waitSec" value="22" type="number" min="5" max="120"/></div>
     <div class="key-item"><label>Max retries on 429</label><input id="maxRetry" value="5" type="number" min="1" max="10"/></div>
+  <div class="key-row">
+    <div class="key-item"><label>Neo4j Cypher URL (for dish enrichment)</label><input id="n4jCypherUrl" value="https://9b0f64b5.databases.neo4j.io/db/neo4j/tx/commit" placeholder="https://INSTANCE.databases.neo4j.io/db/neo4j/tx/commit"/></div>
+    <div class="key-item"><label>Neo4j Username</label><input id="n4jUser" value="neo4j" placeholder="neo4j"/></div>
+  </div>
+  <div class="key-row">
+    <div class="key-item"><label>Neo4j Password</label><input id="n4jPass" type="password" placeholder="Your Aura password"/></div>
+    <div class="key-item" style="display:flex;align-items:center;font-size:12px;color:#888;padding:8px">Cypher URL bypasses GraphQL schema — needed for dishes + texture/ingredient enrichment</div>
   </div>
 </div>
 
@@ -142,6 +149,34 @@ async function n4jQuery(gql){
   const j=await r.json();
   if(j.errors)throw new Error(j.errors[0].message);
   return j.data||{};
+}
+
+// ── NEO4J CYPHER HTTP ─────────────────────────────────
+// Used for dish fetch — bypasses GraphQL schema so dishes are
+// reachable even when the schema has a root-field name mismatch.
+// Also traverses the new Texture/CookingMethod/Ingredient nodes
+// added via Cypher (which are invisible to GraphQL until the SDL
+// is regenerated).
+async function cypherQuery(cyql){
+  const url=g("n4jCypherUrl").value.trim();
+  const user=g("n4jUser").value.trim();
+  const pass=g("n4jPass").value.trim();
+  if(!url||!pass) throw new Error("Neo4j Cypher URL and Password are required for dish fetch");
+  const auth="Basic "+btoa(user+":"+pass);
+  const r=await fetch(url,{
+    method:"POST", mode:"cors",
+    headers:{"Content-Type":"application/json","Authorization":auth},
+    body:JSON.stringify({statements:[{statement:cyql,parameters:{}}]})
+  });
+  if(!r.ok) throw new Error("Cypher HTTP "+r.status);
+  const j=await r.json();
+  if(j.errors&&j.errors.length) throw new Error(j.errors[0].message);
+  const cols=j.results[0].columns;
+  return j.results[0].data.map(d=>{
+    const row={};
+    cols.forEach((c,i)=>{ row[c]=d.row[i]; });
+    return row;
+  });
 }
 
 // ── VOYAGE AI WITH RETRY ──────────────────────────────
@@ -232,11 +267,19 @@ function sleep(ms){return new Promise(r=>setTimeout(r,ms));}
 
 // ── BUILD TEXT FOR EMBEDDING ──────────────────────────
 function dishText(d){
-  return `Indian restaurant dish: ${d.name||""}. ${d.desc||d.description||""} Price $${d.price||""}. `+
-    (d.isVeg==="true"?"Vegetarian. ":"Non-vegetarian. ")+
-    `Spice: ${d.spiceLevel||"Medium"}. Origin: ${d.origin||"Indian"}. `+
-    (d.mustTry==="true"?"Chef recommended must-try. ":"")+
-    (d.isBeverage==="true"?"Beverage/drink item. ":"");
+  // Rich embedding text — includes texture, cooking method, and ingredient
+  // data from the Neo4j enrichment nodes so Pinecone can match cross-domain
+  // queries like "pizza" → Naan (shared: all-purpose flour, baked) and
+  // "alligator bites" → Chicken 65 (shared: crispy, deep-fried).
+  let t=`Indian restaurant dish: ${d.name||""}. ${d.desc||d.description||""} Price $${d.price||""}. `;
+  t+=(d.isVeg==="true"||d.isVeg===true?"Vegetarian. ":"Non-vegetarian. ");
+  t+=`Spice: ${d.spiceLevel||"Medium"}. Origin: ${d.origin||"Indian"}. `;
+  t+=(d.mustTry==="true"||d.mustTry===true?"Chef recommended must-try. ":"");
+  t+=(d.isBeverage==="true"||d.isBeverage===true?"Beverage/drink item. ":"");
+  if(d.textures&&d.textures.length) t+=`Texture: ${d.textures.join(", ")}. `;
+  if(d.methods&&d.methods.length)   t+=`Cooking method: ${d.methods.join(", ")}. `;
+  if(d.ingredients&&d.ingredients.length) t+=`Key ingredients: ${d.ingredients.join(", ")}. `;
+  return t;
 }
 function staffText(s){
   return `Staff at Taste of India: ${s.name||""}. Role: ${s.role||""}. `+
@@ -282,16 +325,40 @@ async function runPipeline(){
   setStep(0,"run");
   log("Fetching all nodes from Neo4j...","info");
 
-  // Dishes — try both 'dishes' and fallback field names
+  // Dishes — use Cypher HTTP endpoint to bypass GraphQL schema mismatch.
+  // Also fetches Texture/CookingMethod/Ingredient enrichment via OPTIONAL MATCH
+  // so the embedding text is rich enough for cross-domain similarity matching.
+  // Falls back to GraphQL if Cypher credentials are not provided.
   try{
-    const d=await n4jQuery("{ dishes { name price isVeg spiceLevel mustTry isBeverage desc origin } }");
-    const dishes=d.dishes||[];
+    let dishes=[];
+    const hasCypher=g("n4jCypherUrl").value.trim()&&g("n4jPass").value.trim();
+    if(hasCypher){
+      log("Fetching dishes via Cypher HTTP (enriched)...","dim");
+      const rows=await cypherQuery(`
+        MATCH (d:Dish)
+        OPTIONAL MATCH (d)-[:HAS_TEXTURE]->(tx:Texture)
+        OPTIONAL MATCH (d)-[:COOKED_BY]->(cm:CookingMethod)
+        OPTIONAL MATCH (d)-[:CONTAINS_INGREDIENT]->(ing:Ingredient)
+        RETURN d.name AS name, d.desc AS desc, d.price AS price,
+               d.isVeg AS isVeg, d.isVegan AS isVegan,
+               d.spiceLevel AS spiceLevel, d.mustTry AS mustTry,
+               d.isBeverage AS isBeverage, d.origin AS origin,
+               collect(DISTINCT tx.name) AS textures,
+               collect(DISTINCT cm.name) AS methods,
+               collect(DISTINCT ing.name) AS ingredients
+      `);
+      dishes=rows;
+    } else {
+      log("No Cypher credentials — trying GraphQL for dishes...","warn");
+      const d=await n4jQuery("{ dishes { name price isVeg spiceLevel mustTry isBeverage desc origin } }");
+      dishes=(d.dishes||[]).map(x=>({...x,textures:[],methods:[],ingredients:[]}));
+    }
     dishes.forEach(dish=>{
-      const id="dish_"+dish.name.toLowerCase().replace(/[^a-z0-9]+/g,"_").substring(0,48);
-      allNodes.push({id,metadata:{type:"dish",name:dish.name,price:dish.price||"",isVeg:dish.isVeg||"false",spiceLevel:dish.spiceLevel||"Medium",mustTry:dish.mustTry||"false",isBeverage:dish.isBeverage||"false"}});
+      const id="dish_"+String(dish.name||"").toLowerCase().replace(/[^a-z0-9]+/g,"_").substring(0,48);
+      allNodes.push({id,metadata:{type:"dish",name:dish.name,price:dish.price||"",isVeg:String(dish.isVeg)||"false",spiceLevel:dish.spiceLevel||"Medium",mustTry:String(dish.mustTry)||"false",isBeverage:String(dish.isBeverage)||"false"}});
       allTexts.push(dishText(dish));
     });
-    log("✓ "+dishes.length+" dishes","ok");
+    log("✓ "+dishes.length+" dishes"+(hasCypher?" (enriched with texture/ingredients)":""),"ok");
   }catch(e){log("✗ dishes: "+e.message,"err");}
 
   // Staff
