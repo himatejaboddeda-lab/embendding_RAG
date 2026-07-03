@@ -170,7 +170,12 @@ async function cypherQuery(cyql){
     body:JSON.stringify({query:cyql})
   });
   if(!r.ok){
-    const err=await r.json().catch(()=>({}));
+    const txt=await r.text();
+    // Log the full response body so we can diagnose exactly what Neo4j rejected
+    console.error("Worker /cypher failed:",r.status,txt);
+    log("Cypher error detail: "+txt.slice(0,300),"err");
+    let err={error:"Worker /cypher "+r.status};
+    try{err=JSON.parse(txt);}catch(e){}
     throw new Error(err.error||"Worker /cypher "+r.status);
   }
   const j=await r.json();
@@ -280,9 +285,14 @@ function dishText(d){
   t+=`Spice: ${d.spiceLevel||"Medium"}. Origin: ${d.origin||"Indian"}. `;
   t+=(d.mustTry==="true"||d.mustTry===true?"Chef recommended must-try. ":"");
   t+=(d.isBeverage==="true"||d.isBeverage===true?"Beverage/drink item. ":"");
+  // Enrichment from new node types (empty if not yet created in Neo4j)
   if(d.textures&&d.textures.length) t+=`Texture: ${d.textures.join(", ")}. `;
   if(d.methods&&d.methods.length)   t+=`Cooking method: ${d.methods.join(", ")}. `;
   if(d.ingredients&&d.ingredients.length) t+=`Key ingredients: ${d.ingredients.join(", ")}. `;
+  // Confirmed-existing relationship data from this run
+  if(d.categories&&d.categories.length) t+=`Category: ${d.categories.join(", ")}. `;
+  if(d.allergens&&d.allergens.length)   t+=`Contains allergens: ${d.allergens.join(", ")}. `;
+  if(d.pairsWellWith&&d.pairsWellWith.length) t+=`Pairs well with: ${d.pairsWellWith.slice(0,3).join(", ")}. `;
   return t;
 }
 function staffText(s){
@@ -338,19 +348,33 @@ async function runPipeline(){
     const hasCypher=true; // Always use Worker /cypher proxy — no browser CORS issue
     if(hasCypher){
       log("Fetching dishes via Cypher HTTP (enriched)...","dim");
-      const rows=await cypherQuery(`
+      // Use only confirmed existing relationships (INCLUDES, HAS_ALLERGEN,
+      // PAIRS_WELL_WITH). Texture/CookingMethod/Ingredient optional matches
+      // caused 400 Bad Request — likely those node labels do not yet exist
+      // in Neo4j or the enrichment Cypher script hasn't been run.
+      // dishText() handles empty textures/methods/ingredients gracefully.
+      const dishQuery=`
         MATCH (d:Dish)
-        OPTIONAL MATCH (d)-[:HAS_TEXTURE]->(tx:Texture)
-        OPTIONAL MATCH (d)-[:COOKED_BY]->(cm:CookingMethod)
-        OPTIONAL MATCH (d)-[:CONTAINS_INGREDIENT]->(ing:Ingredient)
-        RETURN d.name AS name, d.desc AS desc, d.price AS price,
-               d.isVeg AS isVeg, d.isVegan AS isVegan,
-               d.spiceLevel AS spiceLevel, d.mustTry AS mustTry,
-               d.isBeverage AS isBeverage, d.origin AS origin,
-               collect(DISTINCT tx.name) AS textures,
-               collect(DISTINCT cm.name) AS methods,
-               collect(DISTINCT ing.name) AS ingredients
-      `);
+        OPTIONAL MATCH (c:Category)-[:INCLUDES]->(d)
+        OPTIONAL MATCH (d)-[:HAS_ALLERGEN]->(a:Allergen)
+        OPTIONAL MATCH (d)-[:PAIRS_WELL_WITH]->(p:Dish)
+        RETURN
+          d.name AS name,
+          d.price AS price,
+          d.desc AS desc,
+          d.isVeg AS isVeg,
+          d.isVegan AS isVegan,
+          d.spiceLevel AS spiceLevel,
+          d.mustTry AS mustTry,
+          d.isBeverage AS isBeverage,
+          d.origin AS origin,
+          collect(DISTINCT c.name) AS categories,
+          collect(DISTINCT a.name) AS allergens,
+          collect(DISTINCT p.name) AS pairsWellWith
+        LIMIT 300
+      `;
+      log("Sending dish Cypher query to Worker /cypher...","dim");
+      const rows=await cypherQuery(dishQuery);
       dishes=rows;
     } else {
       log("No Cypher credentials — trying GraphQL for dishes...","warn");
