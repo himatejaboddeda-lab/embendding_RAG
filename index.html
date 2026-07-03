@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Chef Krish — Embedding Pipeline v3.1</title>
+<title>Chef Krish — Embedding Pipeline v3.2</title>
 <style>
 body{font-family:system-ui,sans-serif;background:#0D1117;color:#C9D1D9;margin:0;padding:20px;min-height:100vh;}
 h1{color:#E6EDF3;font-size:18px;margin:0 0 4px;}
@@ -41,7 +41,7 @@ input:focus{border-color:#58A6FF;}
 </style>
 </head>
 <body>
-<h1>Chef Krish — Embedding Pipeline v3.1</h1>
+<h1>Chef Krish — Embedding Pipeline v3.2</h1>
 <p class="sub">Auto-retry on rate limit · Batch size 8 · 22s wait between batches · Handles 3 RPM free tier automatically</p>
 
 <div class="rate-info">
@@ -71,10 +71,10 @@ input:focus{border-color:#58A6FF;}
     <div style="font-size:12px;color:#6EE7B7;font-weight:600">✅ Dish enrichment: routed through Cloudflare Worker /cypher proxy (no credentials needed here — Worker uses encrypted secrets)</div>
     <div style="margin-top:8px;padding:10px;background:#1a2a1a;border-radius:8px;border:1px solid #2d4a2d">
       <label style="display:flex;align-items:center;gap:8px;cursor:pointer;color:#E2E8F0;font-size:13px;font-weight:600">
-        <input type="checkbox" id="useWorkerEmbed" style="width:16px;height:16px;cursor:pointer">
-        Use Worker /embed for Voyage AI calls (recommended if getting persistent 429 errors)
+        <input type="checkbox" id="useWorkerEmbed" checked style="width:16px;height:16px;cursor:pointer">
+        Use Worker /embed for Voyage AI calls (recommended — avoids 429 rate limit errors)
       </label>
-      <div style="font-size:11px;color:#9CA3AF;margin-top:4px;padding-left:24px">Worker handles rate limiting server-side — bypasses browser 3 RPM limit. Requires updated worker.js deployed.</div>
+      <div style="font-size:11px;color:#9CA3AF;margin-top:4px;padding-left:24px">Worker handles one batch of 8 dishes per call (~2s each). Pipeline spaces calls 30s apart. Total: ~14 minutes for 221 dishes.</div>
     </div>
   </div>
   </div>
@@ -196,19 +196,10 @@ async function cypherQuery(cyql){
 }
 
 // ── VOYAGE AI WITH RETRY ──────────────────────────────
-// Two paths:
-//   1. Direct (default): browser calls Voyage AI directly — subject to
-//      3 RPM free-tier rate limit, can fail after multiple runs in same hour.
-//   2. Worker /embed: posts to the Cloudflare Worker which handles
-//      embedding server-side with proper 1500ms inter-batch pausing.
-//      More reliable for large batches. Requires the updated worker.js deployed.
+// Key fix: batch size 8, wait between batches, exponential backoff on 429
 async function voyageEmbedWithRetry(texts, inputType="document"){
-  // Route through Worker /embed if requested
-  if(g("useWorkerEmbed") && g("useWorkerEmbed").checked){
-    return await embedViaWorker(texts);
-  }
   const BATCH=parseInt(g("batchSize").value)||8;
-  const WAIT=parseInt(g("waitSec").value)||30;
+  const WAIT=parseInt(g("waitSec").value)||22;
   const MAX_RETRY=parseInt(g("maxRetry").value)||5;
   const all=[];
 
@@ -321,37 +312,92 @@ function featureText(f){
     `${f.property||""}: ${f.value||""}. Type: ${f.type||""}.`;
 }
 
-// ── WORKER /embed ROUTE ───────────────────────────────
-// Sends all texts to the Worker, which calls Voyage AI server-side.
-// Worker handles rate limiting with 1500ms pauses — no browser timeout.
-async function embedViaWorker(texts){
+// ── WORKER /embed ROUTE (BATCHED) ────────────────────
+// WHY BATCHED: Cloudflare Workers time out after 30 seconds per request.
+// Embedding 221 dishes with 1500ms inter-batch pauses would take ~68s —
+// exceeding that limit. So: pipeline sends 8 dish NAMES per Worker call.
+// Worker fetches Cypher enrichment for those 8, embeds them via Voyage AI,
+// upserts to Pinecone, returns in ~2s. Browser handles the 30s wait between
+// calls. Each Worker call stays well under 30s. Browser chains them together.
+async function embedViaWorker(allNodes){
   const WORKER="https://chef-krish-backend.boddedahimateja.workers.dev";
-  log("Routing embeddings through Worker /embed (server-side, rate-limit safe)...","info");
-  // Worker /embed takes the full dish list from Neo4j itself — but we can
-  // also send it the names to embed selectively. For now, call /embed with
-  // no body to embed all dishes from Neo4j, then we'll use the stored vectors.
-  // NOTE: The Worker /embed call re-fetches from Neo4j and re-embeds.
-  // This is the most reliable path for the enriched 221-dish set.
-  const r=await fetch(WORKER+"/embed",{
-    method:"POST",
-    headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({})
-  });
-  const j=await r.json();
-  if(!r.ok) throw new Error("Worker /embed failed: "+(j.error||r.status));
-  log("✓ Worker /embed complete: "+j.upserted+" vectors stored in Pinecone","ok");
-  if(j.errors&&j.errors.length){
-    j.errors.forEach(e=>log("⚠ "+e,"warn"));
+  const BATCH=parseInt(g("batchSize").value)||8;
+  const WAIT=parseInt(g("waitSec").value)||30;
+  const MAX_RETRY=parseInt(g("maxRetry").value)||5;
+
+  const dishNodes=allNodes.filter(n=>n.metadata&&n.metadata.type==="dish");
+  const dishNames=dishNodes.map(n=>n.metadata.name).filter(Boolean);
+
+  if(!dishNames.length){
+    throw new Error("No dish names in allNodes — cannot use Worker /embed");
   }
-  // Return a placeholder array of the right length since the Worker
-  // handled the Pinecone upsert directly — we skip steps 3+4 in the pipeline.
-  log("✅ Embeddings and Pinecone upsert handled by Worker. Skipping pipeline steps 3+4.","info");
-  setStep(2,"ok","Pinecone — handled by Worker /embed ✓");
-  setStep(3,"ok","Verify — run Test Search to confirm vectors");
-  g("cEmbed").textContent=j.upserted||"done";
-  g("cStore").textContent=j.upserted||"done";
-  // Throw a special "done" signal to skip the rest of the pipeline
-  throw new Error("WORKER_EMBED_COMPLETE:"+j.upserted);
+
+  const totalBatches=Math.ceil(dishNames.length/BATCH);
+  log(`Worker /embed: ${dishNames.length} dishes → ${totalBatches} Worker calls of ${BATCH}, ${WAIT}s apart`,"info");
+  log(`Estimated time: ~${Math.ceil(totalBatches*WAIT/60)} minutes`,"warn");
+
+  let totalUpserted=0;
+
+  for(let i=0;i<dishNames.length;i+=BATCH){
+    const batchNames=dishNames.slice(i,i+BATCH);
+    const batchNum=Math.floor(i/BATCH)+1;
+
+    if(i>0){
+      log(`⏳ Waiting ${WAIT}s before batch ${batchNum}/${totalBatches}...`,"dim");
+      await sleep(WAIT*1000);
+    }
+
+    let attempt=0;
+    let success=false;
+    while(attempt<MAX_RETRY && !success){
+      attempt++;
+      try{
+        log(`Embedding batch ${batchNum}/${totalBatches} (${batchNames.length} dishes, attempt ${attempt})...`,"dim");
+        const r=await fetch(WORKER+"/embed",{
+          method:"POST",
+          headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({names:batchNames})
+        });
+        const j=await r.json();
+        if(!r.ok){
+          const msg=j.error||("HTTP "+r.status);
+          if(r.status===429||msg.includes("429")){
+            const w=WAIT*1000*Math.pow(2,attempt);
+            log(`⚠️ Rate limit on batch ${batchNum}. Waiting ${Math.round(w/1000)}s...`,"warn");
+            await sleep(w); continue;
+          }
+          throw new Error(msg);
+        }
+        const stored=j.upserted||0;
+        totalUpserted+=stored;
+        if(j.errors&&j.errors.length) j.errors.forEach(e=>log("⚠ "+e,"warn"));
+        log(`✓ Batch ${batchNum}/${totalBatches} — ${stored} vectors (total: ${totalUpserted})`,"ok");
+        embedCount+=batchNames.length; storeCount+=stored;
+        g("cEmbed").textContent=embedCount;
+        g("cStore").textContent=storeCount;
+        prog(10+(embedCount/dishNames.length)*85);
+        success=true;
+      }catch(e){
+        if(attempt>=MAX_RETRY){
+          log(`❌ Batch ${batchNum} failed after ${MAX_RETRY} tries: ${e.message}`,"err");
+          break;
+        }
+        const w=WAIT*1000*Math.pow(2,attempt);
+        log(`⚠️ Batch ${batchNum} error: ${e.message}. Retry in ${Math.round(w/1000)}s...`,"warn");
+        await sleep(w);
+      }
+    }
+  }
+
+  log(`✅ Worker /embed done: ${totalUpserted}/${dishNames.length} dish vectors in Pinecone.`,"ok");
+  setStep(1,"ok","Voyage AI + Pinecone — "+totalUpserted+" vectors via Worker ✓");
+  setStep(2,"ok","Pinecone — "+totalUpserted+" vectors stored ✓");
+  setStep(3,"ok","Verify — run Test Search to confirm");
+  prog(100); stopTimer();
+  log("","dim");
+  log("✅ Pipeline complete via Worker /embed! Run Test Search to verify.","ok");
+  g("runBtn").disabled=false;
+  throw new Error("WORKER_EMBED_COMPLETE:"+totalUpserted);
 }
 
 // ── PINECONE UPSERT ───────────────────────────────────
@@ -383,15 +429,6 @@ async function runPipeline(){
   prog(0);startTimer();
 
   const allNodes=[], allTexts=[];
-
-  // ── PRE-RUN: COOLDOWN CHECK ──────────────────────────
-  // If not using Worker embed, warn about rate limit cooldown.
-  // Voyage free tier: 3 RPM sliding window. After a failed run, wait
-  // at least 90 seconds before retrying to clear the window.
-  if(!g("useWorkerEmbed")||!g("useWorkerEmbed").checked){
-    log("⏳ Waiting 10s before starting — clears any residual rate limit window from previous run...","warn");
-    await sleep(10000);
-  }
 
   // ── STEP 1: FETCH ALL NODES ─────────────────────────
   setStep(0,"run");
@@ -518,24 +555,39 @@ async function runPipeline(){
   setStep(0,"ok","Neo4j — "+allNodes.length+" nodes fetched ✓");
 
   // ── STEP 2: EMBED WITH VOYAGE AI ───────────────────
-  setStep(1,"run",`Voyage AI embedding — batch ${g("batchSize").value}, ${g("waitSec").value}s between batches`);
+  // Two paths:
+  //   A. Worker /embed (checkbox checked): pipeline calls Worker once per
+  //      8 dishes. Worker does Cypher fetch + Voyage embed + Pinecone upsert
+  //      per call, returns in ~2s. Browser waits 30s between calls.
+  //      No browser Voyage key needed. Handles rate limits reliably.
+  //   B. Direct Voyage (checkbox unchecked): browser calls Voyage AI
+  //      directly. Subject to 3 RPM free-tier limit in browser context.
+  const useWorker=g("useWorkerEmbed")&&g("useWorkerEmbed").checked;
+  setStep(1,"run",useWorker
+    ? `Worker /embed — ${Math.ceil(allNodes.filter(n=>n.metadata?.type==="dish").length/parseInt(g("batchSize").value))} batches, ${g("waitSec").value}s apart`
+    : `Voyage AI — batch ${g("batchSize").value}, ${g("waitSec").value}s between batches`);
+
+  if(useWorker){
+    // Worker path: embedViaWorker handles everything (embed + upsert + done)
+    try{
+      await embedViaWorker(allNodes);
+    }catch(e){
+      if(e.message.startsWith("WORKER_EMBED_COMPLETE:")){
+        return; // Pipeline complete — embedViaWorker already set all UI state
+      }
+      log("❌ Worker embed failed: "+e.message,"err");
+      setStep(1,"err");stopTimer();g("runBtn").disabled=false;
+    }
+    return;
+  }
+
+  // Direct Voyage path
   log(`Starting Voyage AI embeddings — ${Math.ceil(allTexts.length/parseInt(g("batchSize").value))} batches, ${g("waitSec").value}s between each...`,"info");
   log(`Estimated time: ~${Math.round(Math.ceil(allTexts.length/parseInt(g("batchSize").value))*parseInt(g("waitSec").value)/60)} minutes`,"warn");
 
   let embeddings;
   try{
-    try{
-      embeddings=await voyageEmbedWithRetry(allTexts,"document");
-    }catch(e){
-      if(e.message.startsWith("WORKER_EMBED_COMPLETE:")){
-        // Worker handled everything — stop the pipeline here gracefully
-        log("Pipeline complete via Worker /embed.","ok");
-        setStep(0,"ok"); setStep(1,"ok");
-        g("cFetch").textContent=allNodes.length;
-        return;
-      }
-      throw e; // re-throw real errors
-    }
+    embeddings=await voyageEmbedWithRetry(allTexts,"document");
     log(`✓ ${embeddings.length} embeddings generated`,"ok");
     setStep(1,"ok","Voyage AI — "+embeddings.length+" embeddings ✓");
     prog(70);
