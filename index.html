@@ -67,13 +67,9 @@ input:focus{border-color:#58A6FF;}
   <div class="key-row">
     <div class="key-item"><label>Wait between batches (seconds)</label><input id="waitSec" value="22" type="number" min="5" max="120"/></div>
     <div class="key-item"><label>Max retries on 429</label><input id="maxRetry" value="5" type="number" min="1" max="10"/></div>
-  <div class="key-row">
-    <div class="key-item"><label>Neo4j Cypher URL (for dish enrichment)</label><input id="n4jCypherUrl" value="https://9b0f64b5.databases.neo4j.io/db/neo4j/tx/commit" placeholder="https://INSTANCE.databases.neo4j.io/db/neo4j/tx/commit"/></div>
-    <div class="key-item"><label>Neo4j Username</label><input id="n4jUser" value="neo4j" placeholder="neo4j"/></div>
+  <div class="key-row" style="background:#1a2a1a;border:1px solid #2d5a2d;border-radius:8px;padding:10px 14px;margin-top:6px">
+    <div style="font-size:12px;color:#6EE7B7;font-weight:600">✅ Dish enrichment: routed through Cloudflare Worker /cypher proxy (no credentials needed here — Worker uses encrypted secrets)</div>
   </div>
-  <div class="key-row">
-    <div class="key-item"><label>Neo4j Password</label><input id="n4jPass" type="password" placeholder="Your Aura password"/></div>
-    <div class="key-item" style="display:flex;align-items:center;font-size:12px;color:#888;padding:8px">Cypher URL bypasses GraphQL schema — needed for dishes + texture/ingredient enrichment</div>
   </div>
 </div>
 
@@ -158,17 +154,25 @@ async function n4jQuery(gql){
 // added via Cypher (which are invisible to GraphQL until the SDL
 // is regenerated).
 async function cypherQuery(cyql){
-  const url=g("n4jCypherUrl").value.trim();
-  const user=g("n4jUser").value.trim();
-  const pass=g("n4jPass").value.trim();
-  if(!url||!pass) throw new Error("Neo4j Cypher URL and Password are required for dish fetch");
-  const auth="Basic "+btoa(user+":"+pass);
-  const r=await fetch(url,{
+  // Call the Cloudflare Worker's /cypher proxy route instead of Neo4j directly.
+  // Neo4j's Cypher HTTP endpoint blocks browser requests (no CORS). The Worker
+  // runs server-side and has no CORS restriction from its end.
+  // The Worker uses NEO4J_QUERY_URL + NEO4J_USERNAME + NEO4J_PASSWORD from its
+  // encrypted environment variables — no credentials needed here.
+  const workerUrl=g("n4jUrl").value.trim()
+    .replace("/graphql","")           // strip the GraphQL path
+    .replace("9b0f64b5-graphql.production-orch-0336.neo4j.io","chef-krish-backend.boddedahimateja.workers.dev");
+  // Use the hardcoded Worker URL as the stable base
+  const WORKER="https://chef-krish-backend.boddedahimateja.workers.dev";
+  const r=await fetch(WORKER+"/cypher",{
     method:"POST", mode:"cors",
-    headers:{"Content-Type":"application/json","Authorization":auth},
-    body:JSON.stringify({statements:[{statement:cyql,parameters:{}}]})
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({query:cyql})
   });
-  if(!r.ok) throw new Error("Cypher HTTP "+r.status);
+  if(!r.ok){
+    const err=await r.json().catch(()=>({}));
+    throw new Error(err.error||"Worker /cypher "+r.status);
+  }
   const j=await r.json();
   if(j.errors&&j.errors.length) throw new Error(j.errors[0].message);
   const cols=j.results[0].columns;
@@ -331,7 +335,7 @@ async function runPipeline(){
   // Falls back to GraphQL if Cypher credentials are not provided.
   try{
     let dishes=[];
-    const hasCypher=g("n4jCypherUrl").value.trim()&&g("n4jPass").value.trim();
+    const hasCypher=true; // Always use Worker /cypher proxy — no browser CORS issue
     if(hasCypher){
       log("Fetching dishes via Cypher HTTP (enriched)...","dim");
       const rows=await cypherQuery(`
